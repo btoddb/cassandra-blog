@@ -1,0 +1,74 @@
+drop keyspace blog_btoddb;
+
+create keyspace blog_btoddb
+    with placement_strategy = 'org.apache.cassandra.locator.SimpleStrategy'
+    and strategy_options = {replication_factor:1};
+
+use blog_btoddb;
+
+create column family users
+    with key_validation_class = 'UTF8Type'
+    and comparator = 'UTF8Type'
+    and default_validation_class = 'UTF8Type'
+    ;
+
+create column family posts
+    with key_validation_class = 'TimeUUIDType'
+    and comparator = 'UTF8Type'
+    and default_validation_class = 'UTF8Type'
+    and column_metadata =
+    [{
+        column_name : 'create_ts',
+        validation_class : LongType
+    }]
+    ;
+
+create column family comments
+    with key_validation_class = 'TimeUUIDType'
+    and comparator = 'UTF8Type'
+    and default_validation_class = 'UTF8Type'
+    and column_metadata =
+    [{
+        column_name : 'create_ts',
+        validation_class : LongType
+    },
+    {
+        column_name : 'post_id',
+        validation_class : TimeUUIDType
+    }]
+    ;
+
+create column family user_posts
+    with key_validation_class = 'UTF8Type'
+    and comparator = 'TimeUUIDType'
+    ;
+
+create column family user_comments
+    with key_validation_class = 'UTF8Type'
+    and comparator = 'TimeUUIDType'
+    ;
+
+create column family post_comments
+    with key_validation_class = 'TimeUUIDType'
+    and comparator = 'TimeUUIDType'
+    ;
+
+create column family posts_by_time
+    with key_validation_class = 'UTF8Type'
+    and comparator = 'TimeUUIDType'
+    ;
+
+create column family votes
+    with key_validation_class = 'TimeUUIDType'
+    and default_validation_class=CounterColumnType
+    and comparator = 'UTF8Type'
+    ;
+
+create column family user_votes
+    with key_validation_class = 'UTF8Type'
+    and comparator = 'TimeUUIDType'
+    ;
+
+create column family posts_sorted_by_vote
+    with comparator = 'CompositeType(LongType(reversed=true), TimeUUIDType)'
+    ;

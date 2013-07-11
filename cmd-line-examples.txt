@@ -1,0 +1,7 @@
+vote test@disney.com post e3f1cbe0-e8e7-11e2-857b-08002715025c
+show-posts-by-range 20130701:000000 20130710:000000
+create-user todd@disney.com thePass "B. Todd"
+
+create-comment todd@disney.com c323f820-e8e7-11e2-95be-08002715025c "this post is totally fiction!"
+
+

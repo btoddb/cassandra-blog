@@ -1,0 +1,107 @@
+recording and querying sensor data
+
+- this can include sampling CPU, thermometer, disk usage, car speed, etc over an interval
+  (usually would be fixed interval per sensor, but doesn't matter)
+- search by time period per source
+- search for samples that were between X and Y for a given sensor
+
+sensor data roll ups
+
+- aggregate several "sources" for some roll ups
+
+general query service implementation (w/o solr)
+
+- cassandra can do some stuff, but full text search, no
+- really not a good fit for cassandra
+
+general object persistence
+
+- ok for cassandra except for updates!  means read-lock-write (which cassandra doesn't support at the moment)
+
+blog site
+
+- done - user (email, password, name, etc - can add properties anytime)
+- done - blog posts
+- done - comments
+- done - votes per blog post, per comment
+- activity by user for posts and comments
+- give me all comments sorted: by vote, by timestamp
+- activity for entire site (logging)
+
+working session
+
+- could have them evolve user/post objects and see affects on data model
+
+
+
+done - ColumnFamily: users
+--------------------
+key = email
+required columns: email, password, name
+comparator: bytes (no sorting needed)
+
+done - ColumnFamily: posts
+-------------------
+key = TimeUUID
+required columns: user-email, timestamp, title, text
+comparator: bytes (no sorting needed)
+
+done - ColumnFamily: comments
+----------------------
+key = TimeUUID
+required columns: post-id, user-email, user-name, timestamp, text
+comparator: bytes (no sorting needed)
+
+done - ColumnFamily: user-posts
+------------------------
+key = email
+required columns: post-uuid
+comparator: TimeUUID (sort by create timestamp)
+
+done - ColumnFamily: post-comments
+-------------------
+key = TimeUUID (post-uuid)
+required columns: TimeUUID
+value: UUID of comment
+comparator: TimeUUID (sort by create timestamp)
+
+done - ColumnFamily: user-comments
+---------------------------
+key = email
+required columns: comment-uuid
+comparator: TimeUUID (sort by create timestamp)
+
+done - ColumnFamily (counter): votes
+-----------------------------
+key = UUID
+required columns: votes
+comparator: bytes (no sorting needed)
+
+
+
+How to sort comments by vote
+----------------------------
+
+ - record vote using distributed counters CF, votes
+ - record the vote in CF, user_votes, so a user can only vote once per post or comment
+ - record an update is required for a post by recording PostUUID to CF, comment_vote_ledger: key = 5 minute timestamp,
+   col name = PostUUID, col value = <empty>
+
+ process awakes every N seconds
+
+ - read last time performed "post vote sorting" from CF, system-data.
+ - read rows from CF, comment_vote_ledger, since "last time" until present. each row determines what Posts had comment
+   votes for that time interval, which means their votes must be sorted.
+ - for each row read the column names, which are Post UUIDs.  Read all comment votes for Post, sort the comments by
+   vote total, then write to comments_sorted_by_vote using: key = PostUUID, col name = votes:CommentUUID (delete entire row first)
+ - writes out "last time"
+
+How to sort for Top N posts over last M days
+--------------------------------------------
+
+- each day at midnight read from CF, posts_by_time, 30 days worth of post UUIDs
+- for each Post UUID:
+  - lookup its current votes from CF, votes
+- sort the posts by votes and write to CF, posts_sorted_by_vote
+
+
