@@ -50,7 +50,7 @@ create column family user_comments
 
 create column family post_comments
     with key_validation_class = 'TimeUUIDType'
-    and comparator = 'TimeUUIDType'
+    and comparator = 'TimeUUIDType(reversed=true)'
     ;
 
 create column family posts_by_time
@@ -71,4 +71,14 @@ create column family user_votes
 
 create column family posts_sorted_by_vote
     with comparator = 'CompositeType(LongType(reversed=true), TimeUUIDType)'
+    ;
+
+create column family post_comment_vote_ledger
+    with key_validation_class = 'UTF8Type'
+    and comparator = 'TimeUUIDType'
+    ;
+
+create column family post_comments_sorted_by_vote
+    with key_validation_class = 'TimeUUIDType'
+    with comparator = 'CompositeType(LongType(reversed=true), TimeUUIDType(reversed=true))'
     ;

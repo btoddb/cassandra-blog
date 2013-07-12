@@ -1,4 +1,6 @@
 vote test@disney.com post e3f1cbe0-e8e7-11e2-857b-08002715025c
+vote test@disney.com comment c32130d0-e91a-11e2-b80e-08002715025c
+
 show-posts-by-range 20130701:000000 20130710:000000
 create-user todd@disney.com thePass "B. Todd"
 
