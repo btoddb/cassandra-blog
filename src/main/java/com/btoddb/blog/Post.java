@@ -2,6 +2,8 @@ package com.btoddb.blog;
 
 import me.prettyprint.hom.annotations.Column;
 import me.prettyprint.hom.annotations.Id;
+import me.prettyprint.hom.converters.JodaTimeHectorConverter;
+import org.joda.time.DateTime;
 
 import javax.persistence.Entity;
 import javax.persistence.Table;
@@ -32,8 +34,8 @@ public class Post {
     @Column(name=POST_COL_TITLE)
     private String title;
 
-    @Column(name=POST_COL_CREATE_TS)
-    private long createTimestamp;
+    @Column(name=POST_COL_CREATE_TS, converter = JodaTimeHectorConverter.class)
+    private DateTime createTimestamp;
 
     @Column(name=POST_COL_TEXT)
     private String text;
@@ -43,7 +45,7 @@ public class Post {
     public Post() {
     }
 
-    public Post(UUID id, String userEmail, String userDisplayName, String title, long createTimestamp, String text) {
+    public Post(UUID id, String userEmail, String userDisplayName, String title, DateTime createTimestamp, String text) {
         this.id = id;
         this.userEmail = userEmail;
         this.userDisplayName = userDisplayName;
@@ -60,11 +62,11 @@ public class Post {
         this.id = id;
     }
 
-    public long getCreateTimestamp() {
+    public DateTime getCreateTimestamp() {
         return createTimestamp;
     }
 
-    public void setCreateTimestamp(long createTimestamp) {
+    public void setCreateTimestamp(DateTime createTimestamp) {
         this.createTimestamp = createTimestamp;
     }
 

@@ -40,12 +40,12 @@ create column family comments
 
 create column family user_posts
     with key_validation_class = 'UTF8Type'
-    and comparator = 'TimeUUIDType'
+    and comparator = 'TimeUUIDType(reversed=true)'
     ;
 
 create column family user_comments
     with key_validation_class = 'UTF8Type'
-    and comparator = 'TimeUUIDType'
+    and comparator = 'TimeUUIDType(reversed=true)'
     ;
 
 create column family post_comments

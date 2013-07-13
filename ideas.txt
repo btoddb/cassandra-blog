@@ -20,13 +20,13 @@ general object persistence
 
 blog site
 
-- done - user (email, password, name, etc - can add properties anytime)
-- done - blog posts
-- done - comments
-- done - votes per blog post, per comment
-- activity by user for posts and comments
+- "create-user" - user (email, password, name, etc - can add properties anytime)
+- "crate-post" - blog posts
+- "create-comment" - comments
+- "show-post, show-comment" - votes per blog post, per comment
+- "show-user, show-user-comments" - activity by user for posts and comments
 - give me all comments sorted: by vote, by timestamp
-- activity for entire site (logging)
+- "not done" - activity for entire site (logging)
 
 working session
 

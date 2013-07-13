@@ -97,6 +97,9 @@ public class BlogDao {
         DateTime dt = calculatePostTimeGranularity(post.getCreateTimestamp());
         m.addInsertion(StringSerializer.get().toBytes(hourFormatter.print(dt)), CF_POSTS_BY_TIME, HFactory.createColumn(post.getId(), EMPTY_BYTES));
 
+        // add a zero to counter so we don't miss one when sorting by votes - this leaves the counter at zero
+        m.addCounter(UUIDSerializer.get().toBytes(post.getId()), CF_VOTES, HFactory.createCounterColumn("v", 0));
+
         // send the batch
         m.execute();
         logger.info("duration = " + sw.getTime() + "ms");
@@ -104,8 +107,8 @@ public class BlogDao {
         return post;
     }
 
-    private DateTime calculatePostTimeGranularity(long timestamp) {
-        return new DateTime(timestamp).withZone(DateTimeZone.forOffsetHours(0)).hourOfDay().roundFloorCopy();
+    private DateTime calculatePostTimeGranularity(DateTime timestamp) {
+        return timestamp.withZone(DateTimeZone.forOffsetHours(0)).hourOfDay().roundFloorCopy();
     }
 
     private DateTime calculateFiveMinuteGranularity(long timestamp) {
@@ -186,7 +189,7 @@ public class BlogDao {
         return uuidList;
     }
 
-    public List<UUID> findPostUUIDsByTimeRange( long start, long end ) {
+    public List<UUID> findPostUUIDsByTimeRange( DateTime start, DateTime end ) {
         // this method assumes the number of keys for the range is "not too big" so as to blow
         // out thrift's frame buffer or cause cassandra to take too long and "time out"
         DateTime firstRow = calculatePostTimeGranularity(start);
@@ -209,16 +212,19 @@ public class BlogDao {
             return null;
         }
 
+        long startAsLong = start.getMillis();
+        long endAsLong = end.getMillis();
+
         List<UUID> uuidList = new LinkedList<UUID>();
         for ( Row<String, UUID, byte[]> row : rows ) {
             ColumnSlice<UUID, byte[]> slice = row.getColumnSlice();
             for ( HColumn<UUID, byte[]> col : slice.getColumns() ) {
                 long t = TimeUUIDUtils.getTimeFromUUID(col.getName());
-                if ( t > end ) {
+                if ( t > endAsLong ) {
                     break;
                 }
 
-                if ( t >= start ) {
+                if ( t >= startAsLong ) {
                     uuidList.add(col.getName());
                 }
             }
@@ -238,7 +244,7 @@ public class BlogDao {
         return findPostsByUUIDList( uuidList, true );
     }
 
-    public List<Post> findPostsByTimeRange(long start, long end) {
+    public List<Post> findPostsByTimeRange(DateTime start, DateTime end) {
         List<UUID> uuidList = findPostUUIDsByTimeRange(start, end);
         if ( uuidList.isEmpty() ) {
             return null;
@@ -260,7 +266,7 @@ public class BlogDao {
         // TODO:BTB - uncomment when we want the end time to be "yesterday" and not "now"
 //        DateTime end = start.plusDays(days-1);
         DateTime end = new DateTime();
-        List<UUID> uuidList = findPostUUIDsByTimeRange(start.getMillis(), end.getMillis());
+        List<UUID> uuidList = findPostUUIDsByTimeRange(start, end);
 
 
         // find votes, then save them to CF which will sort them using Composite col name
@@ -288,6 +294,9 @@ public class BlogDao {
         m.addDeletion(postIdAsBytes, CF_POST_COMMENTS_SORTED_BY_VOTE);
 
         List<UUID> uuidList = findCommentUUIDsByPostSortedByTime(postId);
+        if ( null == uuidList || uuidList.isEmpty() ) {
+            return;
+        }
 
         Map<UUID, Long> voteMap = findVotes(uuidList);
         // now write to CF
@@ -496,6 +505,10 @@ public class BlogDao {
     }
 
     public Map<UUID, Long> findVotes( List<UUID> uuidList ) {
+        if ( null == uuidList || uuidList.isEmpty() ) {
+            return Collections.emptyMap();
+        }
+
         StopWatch sw = new StopWatch();
         sw.start();
         MultigetSliceCounterQuery<UUID, String> q = HFactory.createMultigetSliceCounterQuery(keyspace, UUIDSerializer.get(), StringSerializer.get());
@@ -533,12 +546,13 @@ public class BlogDao {
         SliceQuery<byte[], Composite, byte[]> q = HFactory.createSliceQuery(keyspace, BytesArraySerializer.get(), CompositeSerializer.get(), BytesArraySerializer.get());
         q.setColumnFamily(CF_POSTS_BY_VOTE);
         q.setKey(POSTS_BY_VOTE_KEY);
-        q.setRange(null, null, false, number);
+        q.setRange(null, null, false, 10);
 
         ColumnSliceIterator<byte[], Composite, byte[]> iter = new ColumnSliceIterator<byte[], Composite, byte[]>(q, null, (Composite)null, false);
         List<UUID> uuidList = new LinkedList<UUID>();
         Map<UUID, Long> voteMap = new HashMap<UUID, Long>();
-        while ( iter.hasNext() ) {
+        int count = number;
+        while ( iter.hasNext() && 0 < count--) {
             HColumn<Composite, byte[]> col = iter.next();
             ByteBuffer bb = (ByteBuffer)col.getName().get(1);
             UUID uuid = UUIDSerializer.get().fromByteBuffer(bb);
@@ -547,8 +561,10 @@ public class BlogDao {
         }
 
         List<Post> postList = findPostsByUUIDList(uuidList, false);
-        for ( Post p : postList ) {
-            p.setVotes(voteMap.get(p.getId()));
+        if ( null != postList && !postList.isEmpty() ) {
+            for ( Post p : postList ) {
+                p.setVotes(voteMap.get(p.getId()));
+            }
         }
 
         logger.info("duration = " + sw.getTime() + "ms");

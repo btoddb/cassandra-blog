@@ -12,7 +12,7 @@ import java.util.UUID;
  *
  */
 public class BlogRenderer {
-    private static final DateTimeFormatter dateFormatter = DateTimeFormat.forPattern("MM:dd:YYYY");
+    private static final DateTimeFormatter dateFormatter = DateTimeFormat.forPattern("MM-dd-YYYY");
     private static final DateTimeFormatter timeOnlyFormatter = DateTimeFormat.forPattern("HH:mm");
 
     private BlogDao dao;
@@ -28,7 +28,7 @@ public class BlogRenderer {
 
         System.out.println(indent + " ==> " + c.getUserDisplayName() + " said @ "
                 + timeOnlyFormatter.print(c.getCreateTimestamp())
-                + " on " + dateFormatter.print(c.getCreateTimestamp()) + " : (cid=" + c.getId() + ", pid=" + c.getPostId() +")");
+                + " on " + dateFormatter.print(c.getCreateTimestamp()) + " : (cid = " + c.getId() + ", pid = " + c.getPostId() +")");
         System.out.print(indent + "     ");
         if ( null != c.getVotes() && 0 < c.getVotes() ) {
             System.out.print("(" + c.getVotes() +
@@ -38,6 +38,7 @@ public class BlogRenderer {
     }
 
     public void displayPost(Post p, boolean includeComments, String indent ) {
+        // this should probably not be done every time
         dao.sortCommentsByVotes(p.getId());
 
         if ( null == indent ) {
@@ -46,13 +47,13 @@ public class BlogRenderer {
 
         System.out.println(indent + " ==> " + p.getUserDisplayName() + " posted @ "
                 + timeOnlyFormatter.print(p.getCreateTimestamp())
-                + " on " + dateFormatter.print(p.getCreateTimestamp()) + " : (pid=" + p.getId() +")");
+                + " on " + dateFormatter.print(p.getCreateTimestamp()) + " : (pid = " + p.getId() +")");
         System.out.print(indent + "     ");
         if ( null != p.getVotes() && 0 < p.getVotes() ) {
             System.out.print("(" + p.getVotes() +
                     " " + (1 == p.getVotes() ? "vote" : "votes") + ") ");
         }
-        System.out.println(p.getTitle() );
+        System.out.println("Title: " + p.getTitle() );
         System.out.println(indent + "     " + p.getText() );
         if ( includeComments ) {
             int numDashes = StringUtils.length(indent + "     Comments");
@@ -60,46 +61,29 @@ public class BlogRenderer {
             System.out.println( indent + "     Comments");
             System.out.println("     " + StringUtils.repeat("=", numDashes));
             List<UUID> uuidList = dao.findCommentUUIDsByPostSortedByVotes(p.getId());
-//            List<UUID> uuidList = dao.findCommentUUIDsByPostSortedByTime(p.getId());
             List<Comment> commentList = dao.findCommentsByUUIDList(uuidList);
-            for ( Comment c : commentList ) {
-                displayComment(c, indent+"     " + "  ");
-            }
-        }
-    }
-
-    public void displayPosts(List<Post> postList, String indent) {
-        System.out.println( indent + "=============");
-        if ( null != postList ) {
-            for ( Post p : postList ) {
-                System.out.println(indent + p);
-                List<UUID> uuidList = dao.findCommentUUIDsByPostSortedByVotes(p.getId());
-                if ( !uuidList.isEmpty() ) {
-                    List<Comment> commentList = dao.findCommentsByUUIDList(uuidList);
-                    for ( Comment c : commentList ) {
-                        displayComment(c, indent+"  ");
-                    }
+            if ( null != commentList && !commentList.isEmpty() ) {
+                for ( Comment c : commentList ) {
+                    displayComment(c, indent+"     " + "  ");
                 }
             }
         }
-        else {
-            System.out.println( indent + "EMPTY" );
-            System.out.println( indent + "=============");
-        }
     }
 
-    public void displayUser(User user, String indent) {
-        System.out.println( indent + "=============");
-        if ( null != user ) {
-            System.out.println(user);
+    public void displayUser(User user, boolean includePosts, String indent) {
+        if ( null == indent ) {
+            indent = "";
+        }
+
+        System.out.println(indent + user.getName() + " (" + user.getEmail() + ")" );
+
+        if ( includePosts ) {
             List<Post> postList = dao.findPostsByUser(user.getEmail());
-            displayPosts(postList, "  ");
-        }
-        else {
-            System.out.println( indent + "  EMPTY" );
-            System.out.println( indent + "  =============");
+            if ( null != postList && !postList.isEmpty() ) {
+                for ( Post p : postList ) {
+                    displayPost(p, false, indent + "  ");
+                }
+            }
         }
     }
-
-
 }
