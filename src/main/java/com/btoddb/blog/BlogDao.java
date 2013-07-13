@@ -10,13 +10,10 @@ import me.prettyprint.hector.api.factory.HFactory;
 import me.prettyprint.hector.api.mutation.Mutator;
 import me.prettyprint.hector.api.query.*;
 import me.prettyprint.hom.EntityManagerImpl;
-import org.apache.commons.lang.time.StopWatch;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 import org.joda.time.format.DateTimeFormat;
 import org.joda.time.format.DateTimeFormatter;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
 import java.util.*;
@@ -26,7 +23,7 @@ import java.util.*;
  *
  */
 public class BlogDao {
-    private static final Logger logger = LoggerFactory.getLogger(BlogDao.class);
+//    private static final Logger logger = LoggerFactory.getLogger(BlogDao.class);
 
     private static final String KEYSPACE_NAME = "blog_btoddb";
     private static final String CASS_HOST = "localhost";
@@ -71,20 +68,15 @@ public class BlogDao {
 	}
 
     public User saveUser( User user ) {
-        StopWatch sw = new StopWatch();
-        sw.start();
         // this simple save could easily be done with HOM (Hector Object Mapper)
         Mutator<String> m = HFactory.createMutator(keyspace, StringSerializer.get());
         m.addInsertion(user.getEmail(), CF_USERS, HFactory.createColumn(USER_COL_PASS, user.getPassword(), StringSerializer.get(), StringSerializer.get()));
         m.addInsertion(user.getEmail(), CF_USERS, HFactory.createColumn(USER_COL_NAME, user.getName(), StringSerializer.get(), StringSerializer.get()));
         m.execute();
-        logger.info("saveUser duration = " + sw.getTime() + "ms");
         return user;
     }
 
     public Post savePost( Post post ) {
-        StopWatch sw = new StopWatch();
-        sw.start();
         Mutator<byte[]> m = HFactory.createMutator(keyspace, BytesArraySerializer.get());
 
         // insert row for Post - EntityManager handles mapping POJO to Cassandra row
@@ -102,7 +94,6 @@ public class BlogDao {
 
         // send the batch
         m.execute();
-        logger.info("duration = " + sw.getTime() + "ms");
 
         return post;
     }
@@ -118,8 +109,6 @@ public class BlogDao {
     }
 
     public Comment saveComment( Comment comment ) {
-        StopWatch sw = new StopWatch();
-        sw.start();
         Mutator<byte[]> m = HFactory.createMutator(keyspace, BytesArraySerializer.get());
 
         // insert row for comment - EntityManager handles mapping POJO to Cassandra row
@@ -134,14 +123,11 @@ public class BlogDao {
 
         // send the batch
         m.execute();
-        logger.info("duration = " + sw.getTime() + "ms");
 
         return comment;
     }
 
     public User findUser( String email ) {
-        StopWatch sw = new StopWatch();
-        sw.start();
         SliceQuery<String, String, String> q = HFactory.createSliceQuery(keyspace, StringSerializer.get(), StringSerializer.get(), StringSerializer.get());
         q.setColumnFamily(CF_USERS);
         q.setKey(email);
@@ -159,7 +145,6 @@ public class BlogDao {
         user.setPassword(slice.getColumnByName(USER_COL_PASS).getValue());
         user.setName(slice.getColumnByName(USER_COL_NAME).getValue());
 
-        logger.info("duration = " + sw.getTime() + "ms");
         return user;
     }
 
@@ -171,8 +156,6 @@ public class BlogDao {
     }
 
     public List<UUID> findPostUUIDsByUser( String userEmail ) {
-        StopWatch sw = new StopWatch();
-        sw.start();
         SliceQuery<String, UUID, byte[]> q = HFactory.createSliceQuery(keyspace, StringSerializer.get(), UUIDSerializer.get(), BytesArraySerializer.get());
         q.setColumnFamily(CF_USER_POSTS);
         q.setKey(userEmail);
@@ -185,7 +168,6 @@ public class BlogDao {
             uuidList.add(col.getName());
         }
 
-        logger.info("duration = " + sw.getTime() + "ms");
         return uuidList;
     }
 
@@ -234,8 +216,6 @@ public class BlogDao {
     }
 
     public List<Post> findPostsByUser( String userEmail ) {
-        StopWatch sw = new StopWatch();
-        sw.start();
         List<UUID> uuidList = findPostUUIDsByUser(userEmail);
         if ( uuidList.isEmpty() ) {
             return null;
@@ -254,8 +234,6 @@ public class BlogDao {
     }
 
     public void sortPostsByVote(int days) {
-        StopWatch sw = new StopWatch();
-        sw.start();
         Mutator<byte[]> m = HFactory.createMutator(keyspace, BytesArraySerializer.get());
 
         // delete the old row first, then we'll add the new
@@ -281,12 +259,9 @@ public class BlogDao {
 
         // send the batch
         m.execute();
-        logger.info("duration = " + sw.getTime() + "ms");
     }
 
     public void sortCommentsByVotes(UUID postId) {
-        StopWatch sw = new StopWatch();
-        sw.start();
         Mutator<byte[]> m = HFactory.createMutator(keyspace, BytesArraySerializer.get());
 
         byte[] postIdAsBytes = UUIDSerializer.get().toBytes(postId);
@@ -309,8 +284,6 @@ public class BlogDao {
     }
 
     private List<Post> findPostsByUUIDList(List<UUID> uuidList, boolean includeVotes) {
-        StopWatch sw = new StopWatch();
-        sw.start();
         MultigetSliceQuery<UUID, String, byte[]> q = HFactory.createMultigetSliceQuery(keyspace, UUIDSerializer.get(), StringSerializer.get(), BytesArraySerializer.get());
         q.setColumnFamily(CF_POSTS);
         q.setRange(null, null, false, 100);
@@ -341,13 +314,10 @@ public class BlogDao {
             }
         }
 
-        logger.info("duration = " + sw.getTime() + "ms");
         return postList;
     }
 
     public List<UUID> findCommentUUIDsByUser( String userEmail ) {
-        StopWatch sw = new StopWatch();
-        sw.start();
         SliceQuery<String, UUID, byte[]> q = HFactory.createSliceQuery(keyspace, StringSerializer.get(), UUIDSerializer.get(), BytesArraySerializer.get());
         q.setColumnFamily(CF_USER_COMMENTS);
         q.setKey(userEmail);
@@ -360,26 +330,19 @@ public class BlogDao {
             uuidList.add(col.getName());
         }
 
-        logger.info("duration = " + sw.getTime() + "ms");
         return uuidList;
     }
 
     public List<Comment> findCommentsByUser( String userEmail ) {
-        StopWatch sw = new StopWatch();
-        sw.start();
         List<UUID> uuidList = findCommentUUIDsByUser(userEmail);
         if ( uuidList.isEmpty() ) {
             return null;
         }
 
-        logger.info("duration = " + sw.getTime() + "ms");
         return findCommentsByUUIDList(uuidList);
     }
 
     public List<Comment> findCommentsByPost( UUID postId ) {
-        StopWatch sw = new StopWatch();
-        sw.start();
-
         //TODO:BTB - should do this periodically, or only after a vote on a comment for this postId
         sortCommentsByVotes(postId);
 
@@ -388,7 +351,6 @@ public class BlogDao {
             return null;
         }
 
-        logger.info("duration = " + sw.getTime() + "ms");
         return findCommentsByUUIDList(uuidList);
     }
 
@@ -408,8 +370,6 @@ public class BlogDao {
     }
 
     public List<Comment> findCommentsByUUIDList( List<UUID> uuidList ) {
-        StopWatch sw = new StopWatch();
-        sw.start();
         MultigetSliceQuery<UUID, String, byte[]> q = HFactory.createMultigetSliceQuery(keyspace, UUIDSerializer.get(), StringSerializer.get(), BytesArraySerializer.get());
         q.setColumnFamily(CF_COMMENTS);
         q.setRange(null, null, false, 100);
@@ -439,13 +399,10 @@ public class BlogDao {
             }
         }
 
-        logger.info("duration = " + sw.getTime() + "ms");
         return commentList;
     }
 
     public List<UUID> findCommentUUIDsByPostSortedByTime(UUID postId) {
-        StopWatch sw = new StopWatch();
-        sw.start();
         SliceQuery<UUID, UUID, byte[]> q = HFactory.createSliceQuery(keyspace, UUIDSerializer.get(), UUIDSerializer.get(), BytesArraySerializer.get());
         q.setColumnFamily(CF_POST_COMMENTS);
         q.setKey(postId);
@@ -458,13 +415,10 @@ public class BlogDao {
             uuidList.add(col.getName());
         }
 
-        logger.info("duration = " + sw.getTime() + "ms");
         return uuidList;
     }
 
     public List<UUID> findCommentUUIDsByPostSortedByVotes(UUID postId) {
-        StopWatch sw = new StopWatch();
-        sw.start();
         SliceQuery<UUID, Composite, byte[]> q = HFactory.createSliceQuery(keyspace, UUIDSerializer.get(), CompositeSerializer.get(), BytesArraySerializer.get());
         q.setColumnFamily(CF_POST_COMMENTS_SORTED_BY_VOTE);
         q.setKey(postId);
@@ -477,14 +431,10 @@ public class BlogDao {
             uuidList.add(UUIDSerializer.get().fromByteBuffer((ByteBuffer)col.getName().get(1)));
         }
 
-        logger.info("duration = " + sw.getTime() + "ms");
         return uuidList;
     }
 
     public void vote(String userEmail, String type, UUID uuid) {
-        StopWatch sw = new StopWatch();
-        sw.start();
-
         Mutator<byte[]> m = HFactory.createMutator(keyspace, BytesArraySerializer.get());
 
         m.addCounter(UUIDSerializer.get().toBytes(uuid), CF_VOTES, HFactory.createCounterColumn("v", 1));
@@ -500,7 +450,6 @@ public class BlogDao {
             }
         }
 
-        logger.info("duration = " + sw.getTime() + "ms");
         m.execute();
     }
 
@@ -509,8 +458,6 @@ public class BlogDao {
             return Collections.emptyMap();
         }
 
-        StopWatch sw = new StopWatch();
-        sw.start();
         MultigetSliceCounterQuery<UUID, String> q = HFactory.createMultigetSliceCounterQuery(keyspace, UUIDSerializer.get(), StringSerializer.get());
         q.setColumnFamily(CF_VOTES);
         q.setKeys(uuidList);
@@ -530,7 +477,6 @@ public class BlogDao {
             }
         }
 
-        logger.info("duration = " + sw.getTime() + "ms");
         return voteList;
     }
 
@@ -541,8 +487,6 @@ public class BlogDao {
 	}
 
     public List<Post> findPostsByVote(int number) {
-        StopWatch sw = new StopWatch();
-        sw.start();
         SliceQuery<byte[], Composite, byte[]> q = HFactory.createSliceQuery(keyspace, BytesArraySerializer.get(), CompositeSerializer.get(), BytesArraySerializer.get());
         q.setColumnFamily(CF_POSTS_BY_VOTE);
         q.setKey(POSTS_BY_VOTE_KEY);
@@ -567,7 +511,6 @@ public class BlogDao {
             }
         }
 
-        logger.info("duration = " + sw.getTime() + "ms");
         return postList;
     }
 

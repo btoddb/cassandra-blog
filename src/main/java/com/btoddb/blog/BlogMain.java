@@ -4,6 +4,7 @@ import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 import org.joda.time.format.DateTimeFormat;
 import org.joda.time.format.DateTimeFormatter;
+import org.apache.commons.lang.time.StopWatch;
 
 import java.util.List;
 import java.util.UUID;
@@ -14,6 +15,9 @@ import java.util.UUID;
  */
 public class BlogMain {
     private static final DateTimeFormatter dateFormatter = DateTimeFormat.forPattern("MMddYYYY:HHmmss");
+
+    private static BlogService service;
+    private static BlogRenderer renderer;
 
     public static void main(String[] args) {
         //
@@ -32,13 +36,27 @@ public class BlogMain {
         BlogDao dao = new BlogDao();
         dao.init();
 
-        BlogService service = new BlogService(dao);
-        BlogRenderer renderer = new BlogRenderer(dao);
+        service = new BlogService(dao);
+        renderer = new BlogRenderer(dao);
 
         //
-        // parse command line
+        // parse command and process
         //
 
+        for ( int i=0;i < 10;i++ ) {
+            StopWatch sw = new StopWatch();
+            sw.start();
+
+            try {
+                processCommand(args);
+            }
+            finally {
+                System.out.println("execution duration = " + sw.getTime() + "ms");
+            }
+        }
+    }
+
+    private static void processCommand(String[] args) {
         String command = args[0];
         if ( "show-posts-by-range".equalsIgnoreCase(command)) {
             checkArgs("show-posts-by-range", args, 2);
@@ -107,7 +125,7 @@ public class BlogMain {
         else if ( "create-comment".equalsIgnoreCase(command) ) {
             checkArgs("create-comment", args, 3);
             Comment c = service.createComment(args[1], UUID.fromString(args[2]), args[3]);
-            renderer.displayComment( c, null );
+            renderer.displayComment(c, null);
         }
         else if ( "vote".equalsIgnoreCase(command) ) {
             checkArgs("vote", args, 3);
@@ -125,7 +143,6 @@ public class BlogMain {
             showUsage();
         }
     }
-
     private static void showUsage() {
         System.out.println();
 
