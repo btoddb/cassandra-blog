@@ -38,8 +38,9 @@ public class BlogRenderer {
     }
 
     public void displayPost(Post p, boolean includeComments, String indent ) {
-        // this should probably not be done every time
-        dao.sortCommentsByVotes(p.getId());
+        if ( dao.postCommentsNeedSorting(p.getId())) {
+            dao.sortCommentsByVotes(p.getId());
+        }
 
         if ( null == indent ) {
             indent = "";

@@ -14,7 +14,7 @@ import java.util.UUID;
  *
  */
 public class BlogMain {
-    private static final DateTimeFormatter dateFormatter = DateTimeFormat.forPattern("MMddYYYY:HHmmss");
+    private static final DateTimeFormatter dateFormatter = DateTimeFormat.forPattern("MMddYYYY:HHmmss").withZone(DateTimeZone.forOffsetHours(0));
 
     private static BlogService service;
     private static BlogRenderer renderer;

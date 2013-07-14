@@ -29,7 +29,6 @@ public class BlogDao {
     private static final String CASS_HOST = "localhost";
     private static final byte[] EMPTY_BYTES = new byte[0];
     private static final DateTimeFormatter hourFormatter = DateTimeFormat.forPattern("YYYYMMdd:HH");
-    private static final DateTimeFormatter fiveMinuteFormatter = DateTimeFormat.forPattern("YYYYMMdd:HHmm");
     private static final byte[] POSTS_BY_VOTE_KEY = "posts-sorted".getBytes();
 
     private Cluster cluster;
@@ -58,7 +57,7 @@ public class BlogDao {
 
     private static final String CF_VOTES = "votes";
 
-    private static final String CF_POST_COMMENT_VOTE_LEDGER = "post_comment_vote_ledger";
+    private static final String CF_POST_COMMENT_VOTE_CHANGE = "post_comment_votes_changed";
 
     private static final String CF_POST_COMMENTS_SORTED_BY_VOTE = "post_comments_sorted_by_vote";
 
@@ -102,12 +101,6 @@ public class BlogDao {
         return timestamp.withZone(DateTimeZone.forOffsetHours(0)).hourOfDay().roundFloorCopy();
     }
 
-    private DateTime calculateFiveMinuteGranularity(long timestamp) {
-        DateTime dt = new DateTime(timestamp).withZone(DateTimeZone.forOffsetHours(0)).minuteOfDay().roundFloorCopy();
-        dt = dt.withMinuteOfHour(dt.getMinuteOfHour()/5 * 5);
-        return dt;
-    }
-
     public Comment saveComment( Comment comment ) {
         Mutator<byte[]> m = HFactory.createMutator(keyspace, BytesArraySerializer.get());
 
@@ -117,6 +110,9 @@ public class BlogDao {
         // insert one-to-many for user->comments and post->comments : these are sorted by TimeUUID (chrono + unique)
         m.addInsertion(StringSerializer.get().toBytes(comment.getUserEmail()), CF_USER_COMMENTS, HFactory.createColumn(comment.getId(), EMPTY_BYTES));
         m.addInsertion(UUIDSerializer.get().toBytes(comment.getPostId()), CF_POST_COMMENTS, HFactory.createColumn(comment.getId(), EMPTY_BYTES));
+
+        // this insert is to signal that this post needs its comments sorted
+        m.addInsertion(UUIDSerializer.get().toBytes(comment.getPostId()), CF_POST_COMMENT_VOTE_CHANGE, HFactory.createColumn("v", EMPTY_BYTES));
 
         // add a zero to counter so we don't miss one when sorting by votes - this leaves the counter at zero
         m.addCounter(UUIDSerializer.get().toBytes(comment.getId()), CF_VOTES, HFactory.createCounterColumn("v", 0));
@@ -151,7 +147,7 @@ public class BlogDao {
     public Post findPost( UUID postId ) {
         Post p = entityManager.find(Post.class, postId);
         Map<UUID, Long> voteMap = findVotes(Collections.singletonList(postId));
-        p.setVotes( voteMap.get(postId));
+        p.setVotes(voteMap.get(postId));
         return p;
     }
 
@@ -274,11 +270,15 @@ public class BlogDao {
         }
 
         Map<UUID, Long> voteMap = findVotes(uuidList);
+
         // now write to CF
         for (Map.Entry<UUID, Long> entry : voteMap.entrySet() ) {
             Composite colName = new Composite(entry.getValue(), entry.getKey());
             m.addInsertion(postIdAsBytes, CF_POST_COMMENTS_SORTED_BY_VOTE, HFactory.createColumn(colName, EMPTY_BYTES));
         }
+
+        // delete the marker that said we needed to sort comments for this post
+        m.addDeletion(postIdAsBytes, CF_POST_COMMENT_VOTE_CHANGE);
 
         m.execute();
     }
@@ -335,18 +335,6 @@ public class BlogDao {
 
     public List<Comment> findCommentsByUser( String userEmail ) {
         List<UUID> uuidList = findCommentUUIDsByUser(userEmail);
-        if ( uuidList.isEmpty() ) {
-            return null;
-        }
-
-        return findCommentsByUUIDList(uuidList);
-    }
-
-    public List<Comment> findCommentsByPost( UUID postId ) {
-        //TODO:BTB - should do this periodically, or only after a vote on a comment for this postId
-        sortCommentsByVotes(postId);
-
-        List<UUID> uuidList = findCommentUUIDsByPostSortedByTime(postId);
         if ( uuidList.isEmpty() ) {
             return null;
         }
@@ -440,13 +428,12 @@ public class BlogDao {
         m.addCounter(UUIDSerializer.get().toBytes(uuid), CF_VOTES, HFactory.createCounterColumn("v", 1));
         m.addInsertion(StringSerializer.get().toBytes(userEmail), CF_USER_VOTES, HFactory.createColumn(uuid, EMPTY_BYTES));
 
-        // this inserts the change notification into the ledger - later (on a timer) we'll talley votes
-        // for sorting comments by vote per post and clear the ledger
+        // this inserts the fact that this post has comment votes that have been updated, so next time we
+        // need the comments sorted, we will do so, otherwise, don't waste time sorting
         if ( "comment".equalsIgnoreCase(type) ) {
-            List<Comment> commentList = findCommentsByUUIDList(Collections.singletonList(uuid));
-            if ( null != commentList && !commentList.isEmpty()) {
-                DateTime dt = calculateFiveMinuteGranularity(System.currentTimeMillis());
-                m.addInsertion( StringSerializer.get().toBytes(BlogDao.fiveMinuteFormatter.print(dt)), CF_POST_COMMENT_VOTE_LEDGER, HFactory.createColumn(commentList.get(0).getPostId(), EMPTY_BYTES) );
+            Comment c = findComment(uuid);
+            if ( null != c) {
+                m.addInsertion( UUIDSerializer.get().toBytes(c.getPostId()), CF_POST_COMMENT_VOTE_CHANGE, HFactory.createColumn("v", EMPTY_BYTES) );
             }
         }
 
@@ -514,27 +501,15 @@ public class BlogDao {
         return postList;
     }
 
+    public boolean postCommentsNeedSorting(UUID postId) {
+        ColumnQuery<UUID, String, byte[]> q = HFactory.createColumnQuery(keyspace, UUIDSerializer.get(), StringSerializer.get(), BytesArraySerializer.get());
+        q.setColumnFamily(CF_POST_COMMENT_VOTE_CHANGE);
+        q.setKey(postId);
+        q.setName("v");
 
-    class VoteComparator implements Comparator<UUID> {
-        Map<UUID, Long> theMap;
-
-        public VoteComparator(Map<UUID, Long> theMap) {
-            this.theMap = theMap;
-        }
-
-        @Override
-        public int compare(UUID k1, UUID k2) {
-            Long v1 = theMap.get(k1);
-            Long v2 = theMap.get(k2);
-            if ( v1 >= v2 ) {
-                return 1;
-            }
-            else if ( v1 < v2 ) {
-                return -1;
-            }
-            else {
-                return k1.compareTo(k2);
-            }
-        }
+        QueryResult<HColumn<String, byte[]>> qr = q.execute();
+        HColumn<String, byte[]> col = qr.get();
+        return null != col;
     }
+
 }
