@@ -7,13 +7,15 @@ create keyspace blog_btoddb
 use blog_btoddb;
 
 create column family users
-    with key_validation_class = 'UTF8Type'
+    with comment = 'Define the attributes for a User'
+    and key_validation_class = 'UTF8Type'
     and comparator = 'UTF8Type'
     and default_validation_class = 'UTF8Type'
     ;
 
 create column family posts
-    with key_validation_class = 'TimeUUIDType'
+    with comment = 'Define the attributes for a Post'
+    and key_validation_class = 'TimeUUIDType'
     and comparator = 'UTF8Type'
     and default_validation_class = 'UTF8Type'
     and column_metadata =
@@ -24,7 +26,8 @@ create column family posts
     ;
 
 create column family comments
-    with key_validation_class = 'TimeUUIDType'
+    with comment = 'Define the attributes for a Comment'
+    and key_validation_class = 'TimeUUIDType'
     and comparator = 'UTF8Type'
     and default_validation_class = 'UTF8Type'
     and column_metadata =
@@ -39,46 +42,55 @@ create column family comments
     ;
 
 create column family user_posts
-    with key_validation_class = 'UTF8Type'
+    with comment = 'Connects what posts a user created'
+    and key_validation_class = 'UTF8Type'
     and comparator = 'TimeUUIDType(reversed=true)'
     ;
 
 create column family user_comments
-    with key_validation_class = 'UTF8Type'
+    with comment = 'Connects a User to its comments, ordered by time'
+    and  key_validation_class = 'UTF8Type'
     and comparator = 'TimeUUIDType(reversed=true)'
     ;
 
 create column family post_comments
-    with key_validation_class = 'TimeUUIDType'
+    with comment = 'Connects a Post to its comments, ordered by time'
+    and key_validation_class = 'TimeUUIDType'
     and comparator = 'TimeUUIDType(reversed=true)'
     ;
 
 create column family posts_by_time
-    with key_validation_class = 'UTF8Type'
+    with comment = 'Index for retrieving Posts by time'
+    and key_validation_class = 'UTF8Type'
     and comparator = 'TimeUUIDType'
     ;
 
 create column family votes
-    with key_validation_class = 'TimeUUIDType'
-    and default_validation_class=CounterColumnType
+    with comment = 'Distributed counters for counting votes per comment or post'
+    and key_validation_class = 'TimeUUIDType'
+    and default_validation_class = CounterColumnType
     and comparator = 'UTF8Type'
     ;
 
 create column family user_votes
-    with key_validation_class = 'UTF8Type'
+    with comment = 'Record a user\'s vote on a comment/post, to insure a user only votes once per comment or post'
+    and key_validation_class = 'UTF8Type'
     and comparator = 'TimeUUIDType'
     ;
 
 create column family posts_sorted_by_vote
-    with comparator = 'CompositeType(LongType(reversed=true), TimeUUIDType)'
+    with comment = 'Index for retrieving posts by vote'
+    and comparator = 'CompositeType(LongType(reversed=true), TimeUUIDType)'
     ;
 
 create column family post_comment_votes_changed
-    with key_validation_class = 'TimeUUIDType'
+    with comment = 'Flag indicating the given post needs its comments sorted'
+    and key_validation_class = 'TimeUUIDType'
     and comparator = 'BytesType'
     ;
 
 create column family post_comments_sorted_by_vote
-    with key_validation_class = 'TimeUUIDType'
-    with comparator = 'CompositeType(LongType(reversed=true), TimeUUIDType(reversed=true))'
+    with comment = 'Index for retrieving a post\'s comments by vote'
+    and key_validation_class = 'TimeUUIDType'
+    and comparator = 'CompositeType(LongType(reversed=true), TimeUUIDType(reversed=true))'
     ;
