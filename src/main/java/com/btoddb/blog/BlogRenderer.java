@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- *
+ * Render Blog data to stdout.
  *
  */
 public class BlogRenderer {

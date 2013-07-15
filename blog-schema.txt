@@ -76,6 +76,7 @@ create column family user_votes
     with comment = 'Record a user\'s vote on a comment/post, to insure a user only votes once per comment or post'
     and key_validation_class = 'UTF8Type'
     and comparator = 'TimeUUIDType'
+    and default_validation_class = 'LongType'
     ;
 
 create column family posts_sorted_by_vote

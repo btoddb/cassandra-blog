@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- *
+ * 'main' for command line client - run without any params to see usage.
  *
  */
 public class BlogMain {
@@ -127,22 +127,24 @@ public class BlogMain {
             Comment c = service.createComment(args[1], UUID.fromString(args[2]), args[3]);
             renderer.displayComment(c, null);
         }
-        else if ( "vote".equalsIgnoreCase(command) ) {
-            checkArgs("vote", args, 3);
-            String type = args[2];
-            UUID uuid = UUID.fromString(args[3]);
-            service.vote(args[1], type, uuid);
-            if ( "comment".equalsIgnoreCase(type)) {
-                renderer.displayComment(service.findComment(uuid), null);
-            }
-            else if ( "post".equalsIgnoreCase(type)) {
-                renderer.displayPost(service.findPost(uuid), false, null);
-            }
+        else if ( "vote-on-post".equalsIgnoreCase(command) ) {
+            checkArgs("vote-on-post", args, 2);
+            UUID uuid = UUID.fromString(args[2]);
+            service.voteOnPost(args[1], uuid);
+            renderer.displayPost(service.findPost(uuid), false, null);
+        }
+        else if ( "vote-on-comment".equalsIgnoreCase(command) ) {
+            checkArgs("vote-on-comment", args, 2);
+            UUID uuid = UUID.fromString(args[2]);
+            service.voteOnComment(args[1], uuid);
+            renderer.displayComment(service.findComment(uuid), null);
         }
         else {
+            System.out.println( "Unknown command : " + command);
             showUsage();
         }
     }
+
     private static void showUsage() {
         System.out.println();
 
@@ -159,7 +161,8 @@ public class BlogMain {
         System.out.println( "    show-user-comments <user-email>" );
         System.out.println( "    show-top-posts <number-of-posts>" );
         System.out.println( "    show-recent-posts <minutes>" );
-        System.out.println( "    vote <user-email> <type> <id> (type = POST or COMMENT)" );
+        System.out.println( "    vote-on-post <user-email> <post-id>" );
+        System.out.println( "    vote-on-comment <user-email> <comment-id>" );
 
         System.out.println();
     }

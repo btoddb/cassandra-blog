@@ -23,15 +23,12 @@ import java.util.*;
  *
  */
 public class BlogDao {
-//    private static final Logger logger = LoggerFactory.getLogger(BlogDao.class);
-
     private static final String KEYSPACE_NAME = "blog_btoddb";
     private static final String CASS_HOST = "localhost";
     private static final byte[] EMPTY_BYTES = new byte[0];
     private static final DateTimeFormatter hourFormatter = DateTimeFormat.forPattern("YYYYMMdd:HH");
     private static final byte[] POSTS_BY_VOTE_KEY = "posts-sorted".getBytes();
 
-    private Cluster cluster;
     private Keyspace keyspace;
     private EntityManagerImpl entityManager;
 
@@ -62,12 +59,29 @@ public class BlogDao {
     private static final String CF_POST_COMMENTS_SORTED_BY_VOTE = "post_comments_sorted_by_vote";
 
 
+    /**
+     * Must call once (and only once) prior to using the DAO.
+     *
+     */
     public void init() {
 		initHector();
 	}
 
+    private void initHector() {
+        Cluster cluster = HFactory.getOrCreateCluster("training-cluster", CASS_HOST + ":9160");
+        keyspace = HFactory.createKeyspace(KEYSPACE_NAME, cluster);
+        entityManager = new EntityManagerImpl(keyspace, "com.btoddb.blog" );
+    }
+
+    /**
+     * Save User record.
+     *
+     * @param user user record to save
+     * @return User record after saved
+     */
     public User saveUser( User user ) {
         // this simple save could easily be done with HOM (Hector Object Mapper)
+        // but we'll do it this way once for illustration
         Mutator<String> m = HFactory.createMutator(keyspace, StringSerializer.get());
         m.addInsertion(user.getEmail(), CF_USERS, HFactory.createColumn(USER_COL_PASS, user.getPassword(), StringSerializer.get(), StringSerializer.get()));
         m.addInsertion(user.getEmail(), CF_USERS, HFactory.createColumn(USER_COL_NAME, user.getName(), StringSerializer.get(), StringSerializer.get()));
@@ -75,6 +89,17 @@ public class BlogDao {
         return user;
     }
 
+    /**
+     * Save Post record.
+     * <ul>
+     *     <li>Save Post</li>
+     *     <li>Save User/Post connection</li>
+     *     <li>Initialize votes to zero for sorting</li>
+     * </ul>
+     *
+     * @param post Post record to save
+     * @return Post record after saved
+     */
     public Post savePost( Post post ) {
         Mutator<byte[]> m = HFactory.createMutator(keyspace, BytesArraySerializer.get());
 
@@ -94,13 +119,24 @@ public class BlogDao {
         // send the batch
         m.execute();
 
+        post.setVotes( 0L );
         return post;
     }
 
-    private DateTime calculatePostTimeGranularity(DateTime timestamp) {
-        return timestamp.withZone(DateTimeZone.forOffsetHours(0)).hourOfDay().roundFloorCopy();
-    }
-
+    /**
+     * Save Comment.
+     *
+     * <ul>
+     *     <li>Save Comment</li>
+     *     <li>Save User/Comment connection</li>
+     *     <li>Save Post/Comment connection</li>
+     *     <li>Initialize votes to zero for sorting</li>
+     *     <li>Save flag indicating Post's comments need sorting</li>
+     * </ul>
+     *
+     * @param comment Comment record to save
+     * @return Comment record after saved
+     */
     public Comment saveComment( Comment comment ) {
         Mutator<byte[]> m = HFactory.createMutator(keyspace, BytesArraySerializer.get());
 
@@ -111,19 +147,28 @@ public class BlogDao {
         m.addInsertion(StringSerializer.get().toBytes(comment.getUserEmail()), CF_USER_COMMENTS, HFactory.createColumn(comment.getId(), EMPTY_BYTES));
         m.addInsertion(UUIDSerializer.get().toBytes(comment.getPostId()), CF_POST_COMMENTS, HFactory.createColumn(comment.getId(), EMPTY_BYTES));
 
-        // this insert is to signal that this post needs its comments sorted
-        m.addInsertion(UUIDSerializer.get().toBytes(comment.getPostId()), CF_POST_COMMENT_VOTE_CHANGE, HFactory.createColumn("v", EMPTY_BYTES));
-
         // add a zero to counter so we don't miss one when sorting by votes - this leaves the counter at zero
         m.addCounter(UUIDSerializer.get().toBytes(comment.getId()), CF_VOTES, HFactory.createCounterColumn("v", 0));
+
+        // this insert is to signal that this post needs its comments sorted
+        m.addInsertion(UUIDSerializer.get().toBytes(comment.getPostId()), CF_POST_COMMENT_VOTE_CHANGE, HFactory.createColumn("v", EMPTY_BYTES));
 
         // send the batch
         m.execute();
 
+        comment.setVotes( 0L );
         return comment;
     }
 
+    /**
+     * Find User by user email.
+     *
+     * @param email user's email
+     * @return User record associated with email if found, null otherwise
+     */
     public User findUser( String email ) {
+        // this simple query could easily be done with HOM (Hector Object Mapper)
+        // but we'll do it this way once for illustration
         SliceQuery<String, String, String> q = HFactory.createSliceQuery(keyspace, StringSerializer.get(), StringSerializer.get(), StringSerializer.get());
         q.setColumnFamily(CF_USERS);
         q.setKey(email);
@@ -144,6 +189,12 @@ public class BlogDao {
         return user;
     }
 
+    /**
+     * Find Post by Post ID.
+     *
+     * @param postId UUID of Post to find
+     * @return Post record if found, null otherwise
+     */
     public Post findPost( UUID postId ) {
         Post p = entityManager.find(Post.class, postId);
         Map<UUID, Long> voteMap = findVotes(Collections.singletonList(postId));
@@ -151,6 +202,67 @@ public class BlogDao {
         return p;
     }
 
+    /**
+     * Find Comment by ID.  Also does a lookup to get the Comment's vote count.
+     *
+     * @param uuid UUID of Comment to find
+     * @return Comment record if found, null otherwise
+     */
+    public Comment findComment(UUID uuid) {
+        Comment c = entityManager.find( Comment.class, uuid);
+        if ( null == c ) {
+            return null;
+        }
+
+        Map<UUID, Long> voteMap = findVotes(Collections.singletonList(uuid));
+        if ( voteMap.isEmpty() ) {
+            return c;
+        }
+
+        c.setVotes(voteMap.get(uuid));
+        return c;
+    }
+
+    private List<Post> findPostsByUUIDList(List<UUID> uuidList, boolean includeVotes) {
+        MultigetSliceQuery<UUID, String, byte[]> q = HFactory.createMultigetSliceQuery(keyspace, UUIDSerializer.get(), StringSerializer.get(), BytesArraySerializer.get());
+        q.setColumnFamily(CF_POSTS);
+        q.setRange(null, null, false, 100);
+        q.setKeys(uuidList);
+        QueryResult<Rows<UUID, String, byte[]>> qr = q.execute();
+        Rows<UUID, String, byte[]> rows = qr.get();
+        if ( null == rows || 0 == rows.getCount()) {
+            return null;
+        }
+        Map<UUID, Post> postMap = new HashMap<UUID, Post>();
+        for ( Row<UUID, String, byte[]> row : rows) {
+            postMap.put(row.getKey(), entityManager.find(Post.class, row.getKey(), row.getColumnSlice()));
+        }
+
+        // gotta do it this way to preserve ordering from the original UUID List
+        List<Post> postList = new LinkedList<Post>();
+        for ( UUID uuid : uuidList ) {
+            postList.add(postMap.get(uuid));
+        }
+
+        if ( includeVotes ) {
+            Map<UUID, Long> voteMap = findVotes(uuidList);
+            for (Post post : postList ) {
+                Long votes = voteMap.get(post.getId());
+                if ( null != votes ) {
+                    post.setVotes(votes);
+                }
+            }
+        }
+
+        return postList;
+    }
+
+    /**
+     * Find all Post UUIDs for the given User using the User/Post connection.
+     *
+     * @param userEmail user's email
+     * @return list of Post IDs
+     */
     public List<UUID> findPostUUIDsByUser( String userEmail ) {
         SliceQuery<String, UUID, byte[]> q = HFactory.createSliceQuery(keyspace, StringSerializer.get(), UUIDSerializer.get(), BytesArraySerializer.get());
         q.setColumnFamily(CF_USER_POSTS);
@@ -167,6 +279,28 @@ public class BlogDao {
         return uuidList;
     }
 
+    /**
+     * Find all Posts for the given User.
+     *
+     * @param userEmail user's email
+     * @return list of Post records
+     */
+    public List<Post> findPostsByUser( String userEmail ) {
+        List<UUID> uuidList = findPostUUIDsByUser(userEmail);
+        if ( uuidList.isEmpty() ) {
+            return null;
+        }
+
+        return findPostsByUUIDList( uuidList, true );
+    }
+
+    /**
+     * Find Post UUIDs by time range (GMT).
+     *
+     * @param start Start time in GMT
+     * @param end End time in GMT
+     * @return list of Post IDs
+     */
     public List<UUID> findPostUUIDsByTimeRange( DateTime start, DateTime end ) {
         // this method assumes the number of keys for the range is "not too big" so as to blow
         // out thrift's frame buffer or cause cassandra to take too long and "time out"
@@ -211,15 +345,13 @@ public class BlogDao {
         return uuidList;
     }
 
-    public List<Post> findPostsByUser( String userEmail ) {
-        List<UUID> uuidList = findPostUUIDsByUser(userEmail);
-        if ( uuidList.isEmpty() ) {
-            return null;
-        }
-
-        return findPostsByUUIDList( uuidList, true );
-    }
-
+    /**
+     * Find Posts by time range (GMT).
+     *
+     * @param start Start time in GMT
+     * @param end End time in GMT
+     * @return list of Post records
+     */
     public List<Post> findPostsByTimeRange(DateTime start, DateTime end) {
         List<UUID> uuidList = findPostUUIDsByTimeRange(start, end);
         if ( uuidList.isEmpty() ) {
@@ -229,94 +361,12 @@ public class BlogDao {
         return findPostsByUUIDList( uuidList, true );
     }
 
-    public void sortPostsByVote(int days) {
-        Mutator<byte[]> m = HFactory.createMutator(keyspace, BytesArraySerializer.get());
-
-        // delete the old row first, then we'll add the new
-        m.addDeletion(POSTS_BY_VOTE_KEY, CF_POSTS_BY_VOTE);
-
-        // calc date range, end with yesterday and start 'days' prior
-        DateTime start = new DateTime().minusDays(days).hourOfDay().roundFloorCopy();
-        // TODO:BTB - uncomment when we want the end time to be "yesterday" and not "now"
-//        DateTime end = start.plusDays(days-1);
-        DateTime end = new DateTime();
-        List<UUID> uuidList = findPostUUIDsByTimeRange(start, end);
-
-
-        // find votes, then save them to CF which will sort them using Composite col name
-        if ( null != uuidList && !uuidList.isEmpty() ) {
-            Map<UUID, Long> voteMap = findVotes(uuidList);
-            // now write to CF
-            for (Map.Entry<UUID, Long> entry : voteMap.entrySet() ) {
-                Composite colName = new Composite(entry.getValue(), entry.getKey());
-                m.addInsertion(POSTS_BY_VOTE_KEY, CF_POSTS_BY_VOTE, HFactory.createColumn(colName, EMPTY_BYTES));
-            }
-        }
-
-        // send the batch
-        m.execute();
-    }
-
-    public void sortCommentsByVotes(UUID postId) {
-        Mutator<byte[]> m = HFactory.createMutator(keyspace, BytesArraySerializer.get());
-
-        byte[] postIdAsBytes = UUIDSerializer.get().toBytes(postId);
-        // delete the old row first, then we'll add the new
-        m.addDeletion(postIdAsBytes, CF_POST_COMMENTS_SORTED_BY_VOTE);
-
-        List<UUID> uuidList = findCommentUUIDsByPostSortedByTime(postId);
-        if ( null == uuidList || uuidList.isEmpty() ) {
-            return;
-        }
-
-        Map<UUID, Long> voteMap = findVotes(uuidList);
-
-        // now write to CF
-        for (Map.Entry<UUID, Long> entry : voteMap.entrySet() ) {
-            Composite colName = new Composite(entry.getValue(), entry.getKey());
-            m.addInsertion(postIdAsBytes, CF_POST_COMMENTS_SORTED_BY_VOTE, HFactory.createColumn(colName, EMPTY_BYTES));
-        }
-
-        // delete the marker that said we needed to sort comments for this post
-        m.addDeletion(postIdAsBytes, CF_POST_COMMENT_VOTE_CHANGE);
-
-        m.execute();
-    }
-
-    private List<Post> findPostsByUUIDList(List<UUID> uuidList, boolean includeVotes) {
-        MultigetSliceQuery<UUID, String, byte[]> q = HFactory.createMultigetSliceQuery(keyspace, UUIDSerializer.get(), StringSerializer.get(), BytesArraySerializer.get());
-        q.setColumnFamily(CF_POSTS);
-        q.setRange(null, null, false, 100);
-        q.setKeys(uuidList);
-        QueryResult<Rows<UUID, String, byte[]>> qr = q.execute();
-        Rows<UUID, String, byte[]> rows = qr.get();
-        if ( null == rows || 0 == rows.getCount()) {
-            return null;
-        }
-        Map<UUID, Post> postMap = new HashMap<UUID, Post>();
-        for ( Row<UUID, String, byte[]> row : rows) {
-            postMap.put(row.getKey(), entityManager.find(Post.class, row.getKey(), row.getColumnSlice()));
-        }
-
-        // gotta do it this way to preserve ordering from the original UUID List
-        List<Post> postList = new LinkedList<Post>();
-        for ( UUID uuid : uuidList ) {
-            postList.add(postMap.get(uuid));
-        }
-
-        if ( includeVotes ) {
-            Map<UUID, Long> voteMap = findVotes(uuidList);
-            for (Post post : postList ) {
-                Long votes = voteMap.get(post.getId());
-                if ( null != votes ) {
-                    post.setVotes(votes);
-                }
-            }
-        }
-
-        return postList;
-    }
-
+    /**
+     * Find all Comment UUIDs for a given user.
+     *
+     * @param userEmail user's email
+     * @return list of Comment IDs
+     */
     public List<UUID> findCommentUUIDsByUser( String userEmail ) {
         SliceQuery<String, UUID, byte[]> q = HFactory.createSliceQuery(keyspace, StringSerializer.get(), UUIDSerializer.get(), BytesArraySerializer.get());
         q.setColumnFamily(CF_USER_COMMENTS);
@@ -333,30 +383,56 @@ public class BlogDao {
         return uuidList;
     }
 
-    public List<Comment> findCommentsByUser( String userEmail ) {
-        List<UUID> uuidList = findCommentUUIDsByUser(userEmail);
-        if ( uuidList.isEmpty() ) {
-            return null;
+    /**
+     * Find a post's comment UUIDs sorted by time.  Uses the ColumnFamily, post_comments, as an index.
+     *
+     * @param postId post ID
+     * @return list of Comment IDs
+     */
+    public List<UUID> findCommentUUIDsByPostSortedByTime(UUID postId) {
+        SliceQuery<UUID, UUID, byte[]> q = HFactory.createSliceQuery(keyspace, UUIDSerializer.get(), UUIDSerializer.get(), BytesArraySerializer.get());
+        q.setColumnFamily(CF_POST_COMMENTS);
+        q.setKey(postId);
+        q.setRange(null, null, false, 10);
+
+        ColumnSliceIterator<UUID, UUID, byte[]> iter = new ColumnSliceIterator<UUID, UUID, byte[]>(q, null, (UUID)null, false);
+        List<UUID> uuidList = new LinkedList<UUID>();
+        while ( iter.hasNext() ) {
+            HColumn<UUID, byte[]> col = iter.next();
+            uuidList.add(col.getName());
         }
 
-        return findCommentsByUUIDList(uuidList);
+        return uuidList;
     }
 
-    public Comment findComment(UUID uuid) {
-        Comment c = entityManager.find( Comment.class, uuid);
-        if ( null == c ) {
-            return null;
+    /**
+     * Find a post's comment UUIDs sorted by vote.  Uses the ColumnFamily, post_comments_sorted_by_vote, as an index.
+     *
+     * @param postId Post ID
+     * @return list of Comment IDs
+     */
+    public List<UUID> findCommentUUIDsByPostSortedByVotes(UUID postId) {
+        SliceQuery<UUID, Composite, byte[]> q = HFactory.createSliceQuery(keyspace, UUIDSerializer.get(), CompositeSerializer.get(), BytesArraySerializer.get());
+        q.setColumnFamily(CF_POST_COMMENTS_SORTED_BY_VOTE);
+        q.setKey(postId);
+        q.setRange(null, null, false, 10);
+
+        ColumnSliceIterator<UUID, Composite, byte[]> iter = new ColumnSliceIterator<UUID, Composite, byte[]>(q, null, (Composite)null, false);
+        List<UUID> uuidList = new LinkedList<UUID>();
+        while ( iter.hasNext() ) {
+            HColumn<Composite, byte[]> col = iter.next();
+            uuidList.add(UUIDSerializer.get().fromByteBuffer((ByteBuffer)col.getName().get(1)));
         }
 
-        Map<UUID, Long> voteMap = findVotes(Collections.singletonList(uuid));
-        if ( voteMap.isEmpty() ) {
-            return c;
-        }
-
-        c.setVotes(voteMap.get(uuid));
-        return c;
+        return uuidList;
     }
 
+    /**
+     * Find Comments given a list of Comment IDs.  It will also do a lookup to get the votes count for each Comment.
+     *
+     * @param uuidList Find Comment records given the list of Comment IDs
+     * @return list of Comment records
+     */
     public List<Comment> findCommentsByUUIDList( List<UUID> uuidList ) {
         MultigetSliceQuery<UUID, String, byte[]> q = HFactory.createMultigetSliceQuery(keyspace, UUIDSerializer.get(), StringSerializer.get(), BytesArraySerializer.get());
         q.setColumnFamily(CF_COMMENTS);
@@ -390,43 +466,26 @@ public class BlogDao {
         return commentList;
     }
 
-    public List<UUID> findCommentUUIDsByPostSortedByTime(UUID postId) {
-        SliceQuery<UUID, UUID, byte[]> q = HFactory.createSliceQuery(keyspace, UUIDSerializer.get(), UUIDSerializer.get(), BytesArraySerializer.get());
-        q.setColumnFamily(CF_POST_COMMENTS);
-        q.setKey(postId);
-        q.setRange(null, null, false, 10);
-
-        ColumnSliceIterator<UUID, UUID, byte[]> iter = new ColumnSliceIterator<UUID, UUID, byte[]>(q, null, (UUID)null, false);
-        List<UUID> uuidList = new LinkedList<UUID>();
-        while ( iter.hasNext() ) {
-            HColumn<UUID, byte[]> col = iter.next();
-            uuidList.add(col.getName());
+    /**
+     * Find all Comments for the given user email.
+     *
+     * @param userEmail user's email
+     * @return list of Comment records
+     */
+    public List<Comment> findCommentsByUser( String userEmail ) {
+        List<UUID> uuidList = findCommentUUIDsByUser(userEmail);
+        if ( uuidList.isEmpty() ) {
+            return null;
         }
 
-        return uuidList;
+        return findCommentsByUUIDList(uuidList);
     }
 
-    public List<UUID> findCommentUUIDsByPostSortedByVotes(UUID postId) {
-        SliceQuery<UUID, Composite, byte[]> q = HFactory.createSliceQuery(keyspace, UUIDSerializer.get(), CompositeSerializer.get(), BytesArraySerializer.get());
-        q.setColumnFamily(CF_POST_COMMENTS_SORTED_BY_VOTE);
-        q.setKey(postId);
-        q.setRange(null, null, false, 10);
-
-        ColumnSliceIterator<UUID, Composite, byte[]> iter = new ColumnSliceIterator<UUID, Composite, byte[]>(q, null, (Composite)null, false);
-        List<UUID> uuidList = new LinkedList<UUID>();
-        while ( iter.hasNext() ) {
-            HColumn<Composite, byte[]> col = iter.next();
-            uuidList.add(UUIDSerializer.get().fromByteBuffer((ByteBuffer)col.getName().get(1)));
-        }
-
-        return uuidList;
-    }
-
-    public void vote(String userEmail, String type, UUID uuid) {
+    private void vote(String userEmail, String type, UUID uuid) {
         Mutator<byte[]> m = HFactory.createMutator(keyspace, BytesArraySerializer.get());
 
         m.addCounter(UUIDSerializer.get().toBytes(uuid), CF_VOTES, HFactory.createCounterColumn("v", 1));
-        m.addInsertion(StringSerializer.get().toBytes(userEmail), CF_USER_VOTES, HFactory.createColumn(uuid, EMPTY_BYTES));
+        m.addInsertion(StringSerializer.get().toBytes(userEmail), CF_USER_VOTES, HFactory.createColumn(uuid, System.currentTimeMillis()));
 
         // this inserts the fact that this post has comment votes that have been updated, so next time we
         // need the comments sorted, we will do so, otherwise, don't waste time sorting
@@ -440,6 +499,33 @@ public class BlogDao {
         m.execute();
     }
 
+    /**
+     * Vote on a Post.
+     *
+     * @param userEmail User's email
+     * @param postId Post ID
+     */
+    public void voteOnPost( String userEmail, UUID postId ) {
+        vote(userEmail, "POST", postId);
+    }
+
+    /**
+     * Vote on a comment and signal that the Post needs its "comments sorted by vote" index updated.
+     *
+     * @param userEmail user's email
+     * @param commentId Comment ID
+     */
+    public void voteOnComment( String userEmail, UUID commentId ) {
+        vote(userEmail, "COMMENT", commentId);
+    }
+
+    /**
+     * Find the vote counts for the list of UUIDs.  Since UUIDs are unique it doesn't matter if the UUID
+     * is for a Post or a Comment.
+     *
+     * @param uuidList list of Comment or Post IDs
+     * @return Comment/Post ID mapping to number of votes
+     */
     public Map<UUID, Long> findVotes( List<UUID> uuidList ) {
         if ( null == uuidList || uuidList.isEmpty() ) {
             return Collections.emptyMap();
@@ -467,12 +553,36 @@ public class BlogDao {
         return voteList;
     }
 
-	public void initHector() {
-		cluster = HFactory.getOrCreateCluster("training-cluster", CASS_HOST + ":9160");
-		keyspace = HFactory.createKeyspace(KEYSPACE_NAME, cluster);
-        entityManager = new EntityManagerImpl(keyspace, "com.btoddb.blog" );
-	}
+    /**
+     * Find the timestamp, if any, when a User voted on a Post or Comment.
+     *
+     * @param userEmail User's email
+     * @param uuid Post/Comment ID
+     * @return Timestamp of when the user voted if found, null otherwise
+     */
+    public DateTime findUserVote(String userEmail, UUID uuid) {
+        ColumnQuery<String, UUID, Long> q = HFactory.createColumnQuery(keyspace, StringSerializer.get(), UUIDSerializer.get(), LongSerializer.get());
+        q.setColumnFamily(CF_USER_VOTES);
+        q.setKey(userEmail);
+        q.setName(uuid);
 
+        QueryResult<HColumn<UUID, Long>> qr = q.execute();
+        HColumn<UUID, Long> col = qr.get();
+        if ( null != col ) {
+            return new DateTime(col.getValue());
+        }
+        else {
+            return null;
+        }
+    }
+
+    /**
+     * Find 'number' of Posts ordered by their votes.  Uses the ColumnFamily, posts_sorted_by_vote, as an
+     * index to speed up search.
+     *
+     * @param number Number of Posts to return
+     * @return List of Post records
+     */
     public List<Post> findPostsByVote(int number) {
         SliceQuery<byte[], Composite, byte[]> q = HFactory.createSliceQuery(keyspace, BytesArraySerializer.get(), CompositeSerializer.get(), BytesArraySerializer.get());
         q.setColumnFamily(CF_POSTS_BY_VOTE);
@@ -501,6 +611,13 @@ public class BlogDao {
         return postList;
     }
 
+    /**
+     * Determines whether or not a Post's comments need sorting by checking for the Post ID's existence in
+     * the ColumnFamily, post_comment_votes_changed.
+     *
+     * @param postId Post ID
+     * @return true if comments for the given Post ID need sorting, false otherwise
+     */
     public boolean postCommentsNeedSorting(UUID postId) {
         ColumnQuery<UUID, String, byte[]> q = HFactory.createColumnQuery(keyspace, UUIDSerializer.get(), StringSerializer.get(), BytesArraySerializer.get());
         q.setColumnFamily(CF_POST_COMMENT_VOTE_CHANGE);
@@ -510,6 +627,73 @@ public class BlogDao {
         QueryResult<HColumn<String, byte[]>> qr = q.execute();
         HColumn<String, byte[]> col = qr.get();
         return null != col;
+    }
+
+    /**
+     * Sort Posts by vote created since 'days' ago.  The intention is for this method to be called only
+     * when needed, or periodically.
+     *
+     * @param days Only sort Posts that have been created over the last 'days'
+     */
+    public void sortPostsByVote(int days) {
+        Mutator<byte[]> m = HFactory.createMutator(keyspace, BytesArraySerializer.get());
+
+        // delete the old row first, then we'll add the new
+        m.addDeletion(POSTS_BY_VOTE_KEY, CF_POSTS_BY_VOTE);
+
+        // calc date range, end with yesterday and start 'days' prior
+        DateTime start = new DateTime().minusDays(days).hourOfDay().roundFloorCopy();
+        DateTime end = new DateTime();
+        List<UUID> uuidList = findPostUUIDsByTimeRange(start, end);
+
+        // find votes, then save them to CF which will sort them using Composite col name
+        if ( null != uuidList && !uuidList.isEmpty() ) {
+            Map<UUID, Long> voteMap = findVotes(uuidList);
+            // now write to CF
+            for (Map.Entry<UUID, Long> entry : voteMap.entrySet() ) {
+                Composite colName = new Composite(entry.getValue(), entry.getKey());
+                m.addInsertion(POSTS_BY_VOTE_KEY, CF_POSTS_BY_VOTE, HFactory.createColumn(colName, EMPTY_BYTES));
+            }
+        }
+
+        // send the batch
+        m.execute();
+    }
+
+    /**
+     * Sort the comments for a given Post by vote.  The intention is for this method to be called only
+     * when needed, or periodically.
+     *
+     * @param postId Post ID
+     */
+    public void sortCommentsByVotes(UUID postId) {
+        Mutator<byte[]> m = HFactory.createMutator(keyspace, BytesArraySerializer.get());
+
+        byte[] postIdAsBytes = UUIDSerializer.get().toBytes(postId);
+        // delete the old row first, then we'll add the new
+        m.addDeletion(postIdAsBytes, CF_POST_COMMENTS_SORTED_BY_VOTE);
+
+        List<UUID> uuidList = findCommentUUIDsByPostSortedByTime(postId);
+        if ( null == uuidList || uuidList.isEmpty() ) {
+            return;
+        }
+
+        Map<UUID, Long> voteMap = findVotes(uuidList);
+
+        // now write to CF
+        for (Map.Entry<UUID, Long> entry : voteMap.entrySet() ) {
+            Composite colName = new Composite(entry.getValue(), entry.getKey());
+            m.addInsertion(postIdAsBytes, CF_POST_COMMENTS_SORTED_BY_VOTE, HFactory.createColumn(colName, EMPTY_BYTES));
+        }
+
+        // delete the marker that said we needed to sort comments for this post
+        m.addDeletion(postIdAsBytes, CF_POST_COMMENT_VOTE_CHANGE);
+
+        m.execute();
+    }
+
+    private DateTime calculatePostTimeGranularity(DateTime timestamp) {
+        return timestamp.withZone(DateTimeZone.forOffsetHours(0)).hourOfDay().roundFloorCopy();
     }
 
 }
