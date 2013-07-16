@@ -107,10 +107,12 @@ public class BlogDao {
         entityManager.persist(Collections.singleton(post), m);
 
         // insert one-to-many for user->post : these are sorted by TimeUUID (chrono + unique)
+        // TODO:comment out params
         m.addInsertion(StringSerializer.get().toBytes(post.getUserEmail()), CF_USER_POSTS, HFactory.createColumn(post.getId(), EMPTY_BYTES));
 
         // insert TimeUUID post ID to track order the posts were entered
         DateTime dt = calculatePostTimeGranularity(post.getCreateTimestamp());
+        // TODO:comment out params
         m.addInsertion(StringSerializer.get().toBytes(hourFormatter.print(dt)), CF_POSTS_BY_TIME, HFactory.createColumn(post.getId(), EMPTY_BYTES));
 
         // add a zero to counter so we don't miss one when sorting by votes - this leaves the counter at zero
@@ -144,6 +146,7 @@ public class BlogDao {
         entityManager.persist(Collections.singleton(comment), m);
 
         // insert one-to-many for user->comments and post->comments : these are sorted by TimeUUID (chrono + unique)
+        // TODO - comment out the params
         m.addInsertion(StringSerializer.get().toBytes(comment.getUserEmail()), CF_USER_COMMENTS, HFactory.createColumn(comment.getId(), EMPTY_BYTES));
         m.addInsertion(UUIDSerializer.get().toBytes(comment.getPostId()), CF_POST_COMMENTS, HFactory.createColumn(comment.getId(), EMPTY_BYTES));
 
@@ -233,6 +236,7 @@ public class BlogDao {
         if ( null == rows || 0 == rows.getCount()) {
             return null;
         }
+
         Map<UUID, Post> postMap = new HashMap<UUID, Post>();
         for ( Row<UUID, String, byte[]> row : rows) {
             postMap.put(row.getKey(), entityManager.find(Post.class, row.getKey(), row.getColumnSlice()));
@@ -264,6 +268,7 @@ public class BlogDao {
      * @return list of Post IDs
      */
     public List<UUID> findPostUUIDsByUser( String userEmail ) {
+        // TODO - comment out params
         SliceQuery<String, UUID, byte[]> q = HFactory.createSliceQuery(keyspace, StringSerializer.get(), UUIDSerializer.get(), BytesArraySerializer.get());
         q.setColumnFamily(CF_USER_POSTS);
         q.setKey(userEmail);
@@ -309,6 +314,9 @@ public class BlogDao {
 
         MultigetSliceQuery<String, UUID, byte[]> q = HFactory.createMultigetSliceQuery(keyspace, StringSerializer.get(), UUIDSerializer.get(), BytesArraySerializer.get());
         q.setColumnFamily(CF_POSTS_BY_TIME);
+
+        // determine all the rows required to satisfy the time range and set as the 'row keys' for the query
+        // each row key is "pre-decided" to be hours of the day
         DateTime current = firstRow;
         List<String> rowKeys = new LinkedList<String>();
         while ( current.isBefore(lastRow) || current.isEqual(lastRow) ) {
@@ -327,6 +335,7 @@ public class BlogDao {
         long startAsLong = start.getMillis();
         long endAsLong = end.getMillis();
 
+        // loop over result rows, only adding to uuidList if Post time is between range
         List<UUID> uuidList = new LinkedList<UUID>();
         for ( Row<String, UUID, byte[]> row : rows ) {
             ColumnSlice<UUID, byte[]> slice = row.getColumnSlice();
@@ -368,6 +377,7 @@ public class BlogDao {
      * @return list of Comment IDs
      */
     public List<UUID> findCommentUUIDsByUser( String userEmail ) {
+        // TODO - comment out all of this!!!
         SliceQuery<String, UUID, byte[]> q = HFactory.createSliceQuery(keyspace, StringSerializer.get(), UUIDSerializer.get(), BytesArraySerializer.get());
         q.setColumnFamily(CF_USER_COMMENTS);
         q.setKey(userEmail);
@@ -412,6 +422,7 @@ public class BlogDao {
      * @return list of Comment IDs
      */
     public List<UUID> findCommentUUIDsByPostSortedByVotes(UUID postId) {
+        // TODO - comment out this one too!!!
         SliceQuery<UUID, Composite, byte[]> q = HFactory.createSliceQuery(keyspace, UUIDSerializer.get(), CompositeSerializer.get(), BytesArraySerializer.get());
         q.setColumnFamily(CF_POST_COMMENTS_SORTED_BY_VOTE);
         q.setKey(postId);

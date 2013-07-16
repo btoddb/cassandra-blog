@@ -59,8 +59,9 @@ create column family post_comments
     and comparator = 'TimeUUIDType(reversed=true)'
     ;
 
+
 create column family posts_by_time
-    with comment = 'Index for retrieving Posts by time'
+    with comment = 'Index for retrieving Posts by time - keys are on 1 hour granularity'
     and key_validation_class = 'UTF8Type'
     and comparator = 'TimeUUIDType'
     ;
