@@ -1,10 +1,10 @@
-drop keyspace blog_btoddb;
+drop keyspace blog  ;
 
-create keyspace blog_btoddb
+create keyspace blog
     with placement_strategy = 'org.apache.cassandra.locator.SimpleStrategy'
     and strategy_options = {replication_factor:1};
 
-use blog_btoddb;
+use blog;
 
 create column family users
     with comment = 'Define the attributes for a User'

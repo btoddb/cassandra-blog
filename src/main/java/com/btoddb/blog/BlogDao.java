@@ -23,7 +23,7 @@ import java.util.*;
  *
  */
 public class BlogDao {
-    private static final String KEYSPACE_NAME = "blog_btoddb";
+    private static final String KEYSPACE_NAME = "blog";
     private static final String CASS_HOST = "localhost";
     private static final byte[] EMPTY_BYTES = new byte[0];
     private static final DateTimeFormatter hourFormatter = DateTimeFormat.forPattern("YYYYMMdd:HH");
