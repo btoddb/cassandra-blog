@@ -43,7 +43,8 @@ public class BlogMain {
         // parse command and process
         //
 
-        for ( int i=0;i < 10;i++ ) {
+        // sometimes i want to run multiple times to see the performance
+        for ( int i=0;i < 1;i++ ) {
             StopWatch sw = new StopWatch();
             sw.start();
 
